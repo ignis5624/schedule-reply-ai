@@ -1,129 +1,65 @@
-# 予定返信AI
+# 予定返信AI v4.0（分業構成）
 
-空き時間と相手のメッセージから、日程調整の返信候補を作るStreamlitアプリです。
-現在はAIを使わないルール解析を中心に、予定調整でよく使う表現を広く処理します。
+現在の機能を変えず、複数人が同時に作業しやすいように責務ごとに分割した版です。
+Streamlit Community Cloudの起動ファイルは従来どおり `app.py` です。
 
-## 現在の機能
+## 担当の分け方
 
-- 空いている日時の登録
-- 日付・曜日・時間帯・所要時間のルール解析
-- 連続する空き時間の自動結合
-- 複数の具体日を指定した場合、間の日を候補に含めない処理
-- 返信候補の生成
-- OpenAI APIキーを設定した場合のみ、AI解析も選択可能
+| 担当 | 主に触る場所 | 内容 |
+|---|---|---|
+| 画面・操作 | `ui/`、`app.py` | Streamlit画面、入力欄、結果表示 |
+| 日本語ルール解析 | `parsers/` | 日付、曜日、時間帯、所要時間の解釈 |
+| 日程計算 | `services/candidate_service.py` | 空き時間との照合、候補抽出、連続枠の結合 |
+| 返信文 | `services/reply_service.py` | 候補の表示形式、返信文の生成 |
+| AI・外部連携 | `integrations/` | OpenAI、将来のGoogle Calendar・LINE連携 |
+| データ構造 | `domain/models.py` | 各機能が共通で使うデータ型 |
+| テスト | `tests/` | 担当機能ごとの自動テスト |
 
-## 対応している主な表現
-
-### 日付
-
-- 今日、本日、明日、あした、あす、明後日、明々後日
-- 3日後、三日後、2週間後
-- 8月15日、8/15、2026年8月15日、2026-08-15
-- 8月1日〜5日、8/1〜8/5
-- 明日か明後日、8月1日か8月3日
-
-### 週・曜日
-
-- 今週、来週、再来週、再々来週
-- 次の月曜日、今度の土曜
-- 平日、土日、週末
-- 月水金、月・水・金、月曜から水曜
-- 来週前半、来週後半
-
-週は日曜始まり・土曜終わりです。
-
-- 週の前半：日・月・火・水
-- 週の後半：水・木・金・土
-
-### 月
-
-- 今月、来月、再来月、3か月後、三ヶ月後
-- 8月、2026年8月
-- 来月15日、来月1日〜5日
-- 来月前半、来月後半、上旬、中旬、下旬
-
-- 月の前半：1〜15日
-- 月の後半：16日〜月末
-- 上旬：1〜10日
-- 中旬：11〜20日
-- 下旬：21日〜月末
-
-### 時間
-
-- 朝、午前、昼、午後、夕方、夜、深夜
-- 18時〜22時、18:30〜22:00、午後3時から午後7時
-- 18時以降、22時まで、18時台
-
-時間帯は次の固定値です。
-
-- 朝：6:00〜10:00
-- 午前：6:00〜12:00
-- 昼：11:00〜14:00
-- 午後：12:00〜18:00
-- 夕方：16:00〜19:00
-- 夜：18:00〜23:00
-
-### 所要時間
-
-- 2時間、二時間
-- 1時間半、二時間半
-- 1時間30分、90分、1.5h
-
-## 今回は未実装のもの
-
-未対応表現・曖昧表現を検出して聞き返す処理は、次の段階で場合分けして追加します。
-
-## ファイル構成
+## フォルダ構成
 
 ```text
-app.py                  画面
-scheduler.py            日付・時間解析と候補生成
-ai_parser.py            任意のOpenAI解析
-requirements.txt        必要なPythonパッケージ
-.streamlit/config.toml   Streamlit設定
-tests/                   動作確認用テスト
+app.py                         # Streamlitの起動入口
+ui/streamlit_app.py            # 画面本体
+domain/models.py               # 共通データ型
+parsers/common.py              # 表記統一・漢数字
+parsers/date_parser.py         # 日付・週・月
+parsers/weekday_parser.py      # 曜日・前半後半
+parsers/time_parser.py         # 時刻・時間帯
+parsers/duration_parser.py     # 所要時間
+parsers/request_parser.py      # 各解析器の統合
+services/candidate_service.py  # 候補抽出
+services/reply_service.py      # 表示・返信文
+integrations/openai_parser.py  # AI解析
+tests/                         # 自動テスト
 ```
 
-## GitHubで更新する
+`scheduler.py` と `ai_parser.py` は旧コードとの互換用です。今後の新規コードでは各フォルダを直接importしてください。
 
-すでに公開済みの場合は、GitHub上の次のファイルを新版へ置き換えてCommitしてください。
-
-- `app.py`
-- `scheduler.py`
-- `ai_parser.py`
-- `README.md`
-- `tests/test_scheduler.py`
-
-Streamlit Community CloudがGitHubの変更を読み込み、公開アプリを更新します。
-
-## OpenAI APIを使う場合
-
-APIキーをGitHubへ直接書かないでください。Streamlitのアプリ設定にあるSecretsへ登録します。
-
-```toml
-OPENAI_API_KEY = "ここにAPIキー"
-OPENAI_MODEL = "gpt-5-mini"
-```
-
-APIキーを設定しなくても、ルール解析で使用できます。
-
-## ローカルで起動する場合
+## ローカル起動
 
 ```powershell
-py -3.14 -m venv .venv
-.\.venv\Scripts\python.exe -m pip install -r requirements.txt
-.\.venv\Scripts\python.exe -m streamlit run app.py
+py -3.13 -m venv .venv313
+.\.venv313\Scripts\python.exe -m pip install -r requirements.txt
+.\.venv313\Scripts\python.exe -m streamlit run app.py
 ```
 
 ## テスト
 
 ```powershell
-.\.venv\Scripts\python.exe -m unittest discover -s tests
+.\.venv313\Scripts\python.exe -m unittest discover -s tests -v
 ```
 
-## 現在の制限
+## GitHubでの分業
 
-- 入力した予定はブラウザのセッション終了後に保存されません。
-- Googleカレンダーとは未連携です。
-- LINEとは未連携です。
-- 公開URLへ個人情報を入力する運用は、保存・認証機能を整えてから行ってください。
+各担当者は別ブランチで作業し、Pull Requestで `main` へ統合してください。
+
+例：
+
+```text
+feature/ui-calendar-editor
+feature/date-expression-rules
+feature/candidate-ranking
+feature/line-integration
+```
+
+同じファイルを複数人が同時に編集しないよう、上の担当表を基準に分けると衝突が減ります。
