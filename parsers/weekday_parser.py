@@ -16,17 +16,37 @@ def _weekday_range(start_label: str, end_label: str) -> set[int]:
     return values
 
 
-def extract_weekdays(message: str) -> frozenset[int] | None:
-    """曜日指定をPythonのweekday値（月=0〜日=6）へ変換する。"""
+def _extract_excluded_weekdays(message: str) -> frozenset[int] | None:
+    excluded: set[int] = set()
+    if re.search(r"(?:土日|週末)\s*(?:以外|を除いて|除く)", message):
+        excluded.update({5, 6})
+    if re.search(r"平日\s*(?:以外|を除いて|除く)", message):
+        excluded.update(range(5))
+
+    for label in re.findall(
+        r"([月火水木金土日])曜(?:日)?\s*(?:は)?\s*(?:以外|無理|むり|ダメ|だめ|NG|不可|を除いて|除く)",
+        message,
+        flags=re.IGNORECASE,
+    ):
+        excluded.add(WEEKDAYS_JA[label])
+    return frozenset(excluded) if excluded else None
+
+
+def extract_weekday_constraints(
+    message: str,
+) -> tuple[frozenset[int] | None, frozenset[int] | None]:
+    """指定曜日と除外曜日を分離して返す。"""
 
     if any(token in message for token in ("毎日", "全日", "曜日問わず", "何曜日でも")):
-        return None
+        return None, _extract_excluded_weekdays(message)
 
     found: set[int] = set()
     if any(token in message for token in ("平日", "ウィークデー")):
         found.update(range(5))
     if any(token in message for token in ("土日", "週末", "土・日", "土、日")):
         found.update({5, 6})
+    if "週明け" in message:
+        found.update({0, 1})
 
     for start_label, end_label in re.findall(
         r"([月火水木金土日])曜(?:日)?\s*(?:から|〜|～|~|－|-)\s*([月火水木金土日])曜?(?:日)?",
@@ -50,7 +70,17 @@ def extract_weekdays(message: str) -> frozenset[int] | None:
         for label in re.findall(r"[月火水木金土日]", group):
             found.add(WEEKDAYS_JA[label])
 
-    return frozenset(found) if found else None
+    excluded = _extract_excluded_weekdays(message)
+    if excluded:
+        found.difference_update(excluded)
+    return (frozenset(found) if found else None), excluded
+
+
+def extract_weekdays(message: str) -> frozenset[int] | None:
+    """旧コード互換用。肯定指定された曜日だけを返す。"""
+
+    weekdays, _ = extract_weekday_constraints(message)
+    return weekdays
 
 
 def combine_week_segment(
@@ -69,6 +99,8 @@ def combine_week_segment(
         segment = WEEK_FIRST_HALF
     elif "後半" in message:
         segment = WEEK_SECOND_HALF
+    elif "週明け" in message:
+        segment = frozenset({0, 1})
 
     if segment is None:
         return weekdays

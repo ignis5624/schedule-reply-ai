@@ -32,6 +32,33 @@ class CandidateServiceTests(unittest.TestCase):
             [date(2026, 8, 1), date(2026, 8, 3)],
         )
 
+    def test_negative_weekday_is_excluded(self) -> None:
+        today = date(2026, 8, 10)
+        slots = [
+            Availability(date(2026, 8, 11), time(18, 0), time(22, 0)),
+            Availability(date(2026, 8, 12), time(18, 0), time(22, 0)),
+        ]
+        candidates = find_candidates(slots, parse_request("水曜は無理", today))
+        self.assertEqual([candidate.start.date() for candidate in candidates], [date(2026, 8, 11)])
+
+    def test_around_time_is_a_start_window(self) -> None:
+        today = date(2026, 8, 10)
+        slots = [Availability(date(2026, 8, 11), time(18, 0), time(22, 0))]
+        candidates = find_candidates(slots, parse_request("明日19時前後", today))
+        self.assertEqual(
+            format_candidate(candidates[0]),
+            "8/11（火）18:50〜19:10開始で2時間",
+        )
+
+    def test_duration_range_is_preserved_in_reply(self) -> None:
+        today = date(2026, 8, 10)
+        slots = [Availability(date(2026, 8, 11), time(18, 0), time(22, 0))]
+        candidates = find_candidates(slots, parse_request("明日1〜2時間", today))
+        self.assertEqual(
+            format_candidate(candidates[0]),
+            "8/11（火）18:00〜22:00の間で1時間〜2時間",
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

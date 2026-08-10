@@ -13,15 +13,34 @@ def _format_duration(minutes: int) -> str:
     return f"{remainder}分"
 
 
+def _format_requested_duration(candidate: Candidate) -> str:
+    minimum = candidate.required_duration_minutes
+    maximum = candidate.maximum_duration_minutes
+    if maximum is not None and maximum > minimum:
+        return f"{_format_duration(minimum)}〜{_format_duration(maximum)}"
+    return _format_duration(minimum)
+
+
 def format_candidate(candidate: Candidate) -> str:
     """候補を利用者向けの日本語へ整形する。"""
 
     start, end = candidate.start, candidate.end
     weekday = WEEKDAY_LABELS[start.weekday()]
+    if candidate.latest_start is not None:
+        duration_label = _format_requested_duration(candidate)
+        if candidate.latest_start == start:
+            return f"{start.month}/{start.day}（{weekday}）{start:%H:%M}開始で{duration_label}"
+        return (
+            f"{start.month}/{start.day}（{weekday}）"
+            f"{start:%H:%M}〜{candidate.latest_start:%H:%M}開始で{duration_label}"
+        )
+
     base = f"{start.month}/{start.day}（{weekday}）{start:%H:%M}〜{end:%H:%M}"
     available_minutes = int((end - start).total_seconds() // 60)
+    if candidate.maximum_duration_minutes is not None:
+        return f"{base}の間で{_format_requested_duration(candidate)}"
     if candidate.duration_explicit and available_minutes > candidate.required_duration_minutes:
-        return f"{base}の間で{_format_duration(candidate.required_duration_minutes)}"
+        return f"{base}の間で{_format_requested_duration(candidate)}"
     return base
 
 

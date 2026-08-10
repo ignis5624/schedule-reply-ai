@@ -97,6 +97,21 @@ def _extract_explicit_date_range(message: str, today: date) -> tuple[date, date]
         start, end = _safe_date(year, month, d1), _safe_date(year, month, d2)
         if start and end:
             return (start, end) if start <= end else (end, start)
+
+    day_only_range = re.search(
+        r"(?<![\d年月])(\d{1,2})日\s*(?:から|〜|～|~|－|-)\s*(\d{1,2})日",
+        message,
+    )
+    if day_only_range:
+        d1, d2 = map(int, day_only_range.groups())
+        year, month = today.year, today.month
+        start = _safe_date(year, month, d1)
+        if start is None or start < today:
+            year, month = _shift_year_month(today, 1)
+            start = _safe_date(year, month, d1)
+        end = _safe_date(year, month, d2)
+        if start and end:
+            return (start, end) if start <= end else (end, start)
     return None
 
 
@@ -126,6 +141,15 @@ def _extract_explicit_dates(message: str, today: date) -> list[date]:
                 parsed = _safe_date(today.year + 1, month, day)
             if parsed:
                 results.append(parsed)
+
+    for day_text in re.findall(r"(?<![\d年月])(\d{1,2})日(?!後|間)", message):
+        day = int(day_text)
+        parsed = _safe_date(today.year, today.month, day)
+        if parsed is None or parsed < today:
+            year, month = _shift_year_month(today, 1)
+            parsed = _safe_date(year, month, day)
+        if parsed:
+            results.append(parsed)
     return sorted(set(results))
 
 
@@ -169,6 +193,21 @@ def _extract_nearest_weekday_dates(message: str, today: date) -> list[date]:
             days_ahead = 7
         results.append(today + timedelta(days=days_ahead))
     return sorted(set(results))
+
+
+def _extract_bare_week_beginning(message: str, today: date) -> tuple[date, date] | None:
+    if "週明け" not in message:
+        return None
+    if any(token in message for token in ("今週", "来週", "再来週", "再々来週")):
+        return None
+
+    if today.weekday() == 0:
+        monday = today
+    elif today.weekday() == 1:
+        return today, today
+    else:
+        monday = today + timedelta(days=(7 - today.weekday()))
+    return monday, monday + timedelta(days=1)
 
 
 def _extract_week_range(message: str, today: date) -> tuple[date, date] | None:
@@ -245,11 +284,39 @@ def _extract_month_range(message: str, today: date) -> tuple[date, date] | None:
     return None
 
 
+def _extract_bare_month_segment(message: str, today: date) -> tuple[date, date] | None:
+    month_start_tokens = ("月初", "月の初め", "月はじめ", "月頭")
+    month_end_tokens = ("月末", "月の終わり", "月終わり")
+    if any(token in message for token in month_start_tokens):
+        if today.day <= 5:
+            year, month = today.year, today.month
+        else:
+            year, month = _shift_year_month(today, 1)
+        return date(year, month, 1), date(year, month, 5)
+    if any(token in message for token in month_end_tokens):
+        last = calendar.monthrange(today.year, today.month)[1]
+        return max(today, date(today.year, today.month, 25)), date(today.year, today.month, last)
+    if "最終週" in message:
+        last_day = date(today.year, today.month, calendar.monthrange(today.year, today.month)[1])
+        start, end = _week_bounds(last_day, 0)
+        return max(today, start, date(today.year, today.month, 1)), min(end, last_day)
+    return None
+
+
 def _apply_month_segment(message: str, start: date, end: date) -> tuple[date, date]:
     year, month = start.year, start.month
     month_last = calendar.monthrange(year, month)[1]
 
-    if any(token in message for token in ("前半", "前半頃", "前半あたり")):
+    if any(token in message for token in ("月初", "月の初め", "月はじめ", "月頭")):
+        segment_start, segment_end = date(year, month, 1), date(year, month, 5)
+    elif any(token in message for token in ("月末", "月の終わり", "月終わり")):
+        segment_start, segment_end = date(year, month, 25), date(year, month, month_last)
+    elif "最終週" in message:
+        last_day = date(year, month, month_last)
+        segment_start, segment_end = _week_bounds(last_day, 0)
+        segment_start = max(segment_start, date(year, month, 1))
+        segment_end = min(segment_end, last_day)
+    elif any(token in message for token in ("前半", "前半頃", "前半あたり")):
         segment_start, segment_end = date(year, month, 1), date(year, month, 15)
     elif any(token in message for token in ("後半", "後半頃", "後半あたり")):
         segment_start, segment_end = date(year, month, 16), date(year, month, month_last)
@@ -271,7 +338,9 @@ def parse_date_constraints(message: str, today: date) -> DateParseResult:
     explicit_dates = _extract_explicit_dates(message, today)
     relative_dates = _extract_relative_dates(message, today)
     nearest_weekday_dates = _extract_nearest_weekday_dates(message, today)
+    bare_week_beginning = _extract_bare_week_beginning(message, today)
     month_range = _extract_month_range(message, today)
+    bare_month_segment = _extract_bare_month_segment(message, today)
     week_range = _extract_week_range(message, today)
 
     context = "default"
@@ -291,8 +360,14 @@ def parse_date_constraints(message: str, today: date) -> DateParseResult:
         date_start, date_end = min(nearest_weekday_dates), max(nearest_weekday_dates)
         allowed_dates = frozenset(nearest_weekday_dates) if len(nearest_weekday_dates) > 1 else None
         context = "exact"
+    elif bare_week_beginning is not None:
+        date_start, date_end = bare_week_beginning
+        context = "exact"
     elif month_range is not None:
         date_start, date_end = month_range
+        context = "month"
+    elif bare_month_segment is not None:
+        date_start, date_end = bare_month_segment
         context = "month"
     elif week_range is not None:
         date_start, date_end = week_range
@@ -302,5 +377,13 @@ def parse_date_constraints(message: str, today: date) -> DateParseResult:
 
     if context == "month":
         date_start, date_end = _apply_month_segment(message, date_start, date_end)
+
+    if context in ("exact", "explicit") and date_start == date_end:
+        if re.search(r"(?:今日|本日|明日|明後日|明々後日|\d{1,2}日)\s*(?:以降|から)", message):
+            allowed_dates = None
+            date_end = date.max
+        elif re.search(r"(?:今日|本日|明日|明後日|明々後日|\d{1,2}日)\s*まで", message):
+            allowed_dates = None
+            date_start = today
 
     return DateParseResult(date_start, date_end, allowed_dates, context)

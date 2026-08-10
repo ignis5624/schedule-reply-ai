@@ -7,12 +7,12 @@ import pandas as pd
 import streamlit as st
 
 from domain.models import Availability
-from integrations.openai_parser import parse_request_with_ai
-from parsers.request_parser import parse_request
+from integrations.openai_parser import analyze_request_with_ai
+from parsers.request_parser import analyze_request
 from services.candidate_service import find_candidates
 from services.reply_service import build_reply, format_candidate
 
-APP_VERSION = "v4.0-modular"
+APP_VERSION = "v4.1-expression-rules"
 SESSION_KEY = "availability_public_v40"
 
 
@@ -122,15 +122,32 @@ def run_app() -> None:
                 st.error(error)
         else:
             try:
-                if use_ai:
-                    constraints = parse_request_with_ai(message, date.today(), duration, api_key, model)
+                rule_outcome = analyze_request(message, date.today(), duration)
+                if rule_outcome.status == "resolved" and use_ai:
+                    outcome = analyze_request_with_ai(
+                        message,
+                        date.today(),
+                        duration,
+                        api_key,
+                        model,
+                    )
                     parser_label = f"AI解析（{model}）"
                 else:
-                    constraints = parse_request(message, date.today(), duration)
+                    outcome = rule_outcome
                     parser_label = "ルール解析"
 
-                candidates = find_candidates(availabilities, constraints, limit=5)
-                reply = build_reply(name, candidates)
+                constraints = outcome.constraints
+                if outcome.status == "needs_clarification":
+                    candidates = []
+                    reply = outcome.clarification_question or "希望条件を確認させてください。"
+                    parser_label += "（聞き返し）"
+                elif outcome.status == "soft_invitation":
+                    candidates = []
+                    reply = outcome.suggested_reply or "ぜひ、また都合の合うときに行きましょう。"
+                    parser_label += "（柔らかい誘い）"
+                else:
+                    candidates = find_candidates(availabilities, constraints, limit=5)
+                    reply = build_reply(name, candidates)
 
                 st.divider()
                 st.subheader("3. 結果")
@@ -138,9 +155,14 @@ def run_app() -> None:
                 with st.expander("判定内容を確認"):
                     st.write(f"アプリ版：{APP_VERSION}")
                     st.write(f"解析方法：{parser_label}")
-                    st.write(f"対象期間：{constraints.date_start} 〜 {constraints.date_end}")
+                    if constraints.date_end == date.max:
+                        st.write(f"対象期間：{constraints.date_start} 以降")
+                    else:
+                        st.write(f"対象期間：{constraints.date_start} 〜 {constraints.date_end}")
                     st.write(f"所要時間：{constraints.duration_minutes}分")
-                    if candidates:
+                    if outcome.status != "resolved":
+                        st.write(f"判定：{outcome.status}")
+                    elif candidates:
                         st.write("候補：")
                         for candidate in candidates:
                             st.write(f"- {format_candidate(candidate)}")
@@ -156,11 +178,13 @@ def run_app() -> None:
 - 日付：今日・明日・明後日・明々後日、N日後、N週間後、具体的な日付・期間
 - 週：今週・来週・再来週・再々来週、次の曜日、平日、土日、曜日の列挙・範囲
 - 月：今月・来月・再来月・Nか月後、具体的な月、前半・後半・上旬・中旬・下旬
-- 時間：朝・午前・昼・午後・夕方・夜・深夜、時刻範囲、N時以降・N時まで
-- 所要時間：N時間、N時間半、N時間N分、N分
+- 時間：朝・午前・昼・午後・夕方・夜・深夜、N時半、N時N分、時刻範囲、N時以降・N時まで、N時前後
+- 所要時間：N時間、N時間半、N時間N分、N分、N〜N時間
+- 除外：火曜以外、水曜は無理、土日を除いて
 
 **週の前半は日・月・火・水、後半は水・木・金・土です。**  
+**週明けは月・火、月初は1〜5日、月末は25日〜末日です。**  
 **月の前半は1〜15日、後半は16日〜月末です。**
             """
         )
-    st.caption("連続する空き時間は一つにまとめます。未対応表現への聞き返しは次の段階で追加します。")
+    st.caption("連続する空き時間は一つにまとめます。曖昧な期間や時刻は、無理に推測せず聞き返します。")
