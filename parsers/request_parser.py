@@ -38,12 +38,14 @@ def parse_request(
         excluded_weekdays=excluded_weekdays,
         time_start=time_result.time_start,
         time_end=time_result.time_end,
+        time_spans_next_day=time_result.spans_next_day,
         start_time_earliest=time_result.start_time_earliest,
         start_time_latest=time_result.start_time_latest,
         duration_minutes=duration_result.minutes,
         duration_explicit=duration_result.explicit,
         duration_min_minutes=duration_result.minimum_minutes,
         duration_max_minutes=duration_result.maximum_minutes,
+        duration_mode=duration_result.mode,
         date_context=date_result.context,
     )
 
@@ -57,10 +59,36 @@ def analyze_request(
 
     normalized = normalize_message(message)
     constraints = parse_request(normalized, today, default_duration_minutes)
-    status, question, suggested_reply = classify_request(normalized, constraints)
+    recognized_fields: set[str] = set()
+    if constraints.date_context != "default":
+        recognized_fields.add("date")
+    if constraints.weekdays is not None or constraints.excluded_weekdays is not None:
+        recognized_fields.add("weekday")
+    if any(
+        value is not None
+        for value in (
+            constraints.time_start,
+            constraints.time_end,
+            constraints.start_time_earliest,
+            constraints.start_time_latest,
+        )
+    ):
+        recognized_fields.add("time")
+    if constraints.duration_explicit:
+        recognized_fields.add("duration")
+    if any(token in normalized for token in ("いつでも", "終日", "特に希望なし", "何時でも")):
+        recognized_fields.add("unrestricted")
+
+    status, question, suggested_reply = classify_request(
+        normalized,
+        constraints,
+        today=today,
+        recognized_fields=frozenset(recognized_fields),
+    )
     return ParseOutcome(
         constraints=constraints,
         status=status,
         clarification_question=question,
         suggested_reply=suggested_reply,
+        recognized_fields=frozenset(recognized_fields),
     )

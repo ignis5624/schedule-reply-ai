@@ -23,6 +23,15 @@ def _extract_excluded_weekdays(message: str) -> frozenset[int] | None:
     if re.search(r"平日\s*(?:以外|を除いて|除く)", message):
         excluded.update(range(5))
 
+    for group in re.findall(
+        r"((?:[月火水木金土日]曜?(?:日)?\s*(?:、|,|・|と)\s*)+"
+        r"[月火水木金土日]曜?(?:日)?)\s*(?:以外|を除いて|除く)",
+        message,
+    ):
+        excluded.update(
+            WEEKDAYS_JA[label] for label in re.findall(r"[月火水木金土日]", group)
+        )
+
     for label in re.findall(
         r"([月火水木金土日])曜(?:日)?\s*(?:は)?\s*(?:以外|無理|むり|ダメ|だめ|NG|不可|を除いて|除く)",
         message,
@@ -63,7 +72,12 @@ def extract_weekday_constraints(
         found.add(WEEKDAYS_JA[label])
 
     compact_groups = re.findall(
-        r"(?<![\d年月])([月火水木金土日](?:(?:[・、,/かと]|または)?[月火水木金土日])+)(?![年月日])",
+        r"(?<![明平祝\d年月])"
+        r"([月火水木金土日](?:(?:[・、,/かと]|または)[月火水木金土日])+)(?![年月日])",
+        message,
+    )
+    compact_groups += re.findall(
+        r"(?<![明平祝\d年月])([月火水木金土日]{2,7})(?=(?:曜|の|で|なら|が|は|、|,|\s|$))",
         message,
     )
     for group in compact_groups:

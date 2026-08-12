@@ -48,6 +48,10 @@ def normalize_message(message: str) -> str:
         "こんげつ": "今月",
         "らいげつ": "来月",
         "さらいげつ": "再来月",
+        "今晩": "今日の夜",
+        "今夜": "今日の夜",
+        "明朝": "明日の朝",
+        "明晩": "明日の夜",
     }
     for source, target in replacements.items():
         normalized = normalized.replace(source, target)

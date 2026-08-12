@@ -43,12 +43,16 @@ def _build_outcome(data: dict[str, Any], default_duration_minutes: int) -> Parse
         excluded_weekdays=excluded_weekdays,
         time_start=_parse_time(data.get("time_start")),
         time_end=_parse_time(data.get("time_end")),
+        time_spans_next_day=bool(data.get("time_spans_next_day", False)),
         start_time_earliest=_parse_time(data.get("start_time_earliest")),
         start_time_latest=_parse_time(data.get("start_time_latest")),
         duration_minutes=duration_minutes,
         duration_explicit=bool(data.get("duration_explicit", False)),
         duration_min_minutes=(max(15, int(duration_min_raw)) if duration_min_raw is not None else None),
         duration_max_minutes=(max(15, int(duration_max_raw)) if duration_max_raw is not None else None),
+        duration_mode=str(
+            data.get("duration_mode", "exact" if data.get("duration_explicit") else "default")
+        ),
         date_context="ai",
     )
     status = str(data.get("status", "resolved"))
@@ -83,6 +87,8 @@ def analyze_request_with_ai(
 「来月」「Nか月後」は対象月の1日から末日までとして扱い、月の前半は1〜15日、後半は16日〜月末です。
 月初・月の初め・月頭は1〜5日、月末・月の終わりは25日〜末日です。
 「N時前後」は会う時間全体ではなく、開始時刻の許容幅を前後10分としてください。
+「22時から翌1時」のように日付をまたぐ場合は time_spans_next_day を true にしてください。
+所要時間の「以内」は maximum、「以上」は minimum、幅は range として意味を保持してください。
 「火曜以外」「水曜は無理」などの否定曜日は excluded_weekdays に入れてください。
 日付指定がなければ今日から14日後までにしてください。
 曖昧な語を勝手に具体化しないでください。
@@ -99,12 +105,14 @@ def analyze_request_with_ai(
   "excluded_weekdays": [0,1,2,3,4,5,6] または null,
   "time_start": "HH:MM" または null,
   "time_end": "HH:MM" または null,
+  "time_spans_next_day": 日付をまたぐとき true,
   "start_time_earliest": "HH:MM" または null,
   "start_time_latest": "HH:MM" または null,
   "duration_minutes": 整数,
   "duration_explicit": 所要時間の明示があれば true、なければ false,
   "duration_min_minutes": 整数または null,
-  "duration_max_minutes": 整数または null
+  "duration_max_minutes": 整数または null,
+  "duration_mode": "default" または "exact" または "range" または "minimum" または "maximum"
 }}
 曜日は月曜=0、日曜=6。標準所要時間は {default_duration_minutes} 分。
 メッセージ: {message}
