@@ -30,6 +30,87 @@ class Availability:
 
 
 @dataclass(frozen=True)
+class WeeklyAvailabilityRule:
+    """曜日ごとの通常対応可能時間。終了が開始以前なら翌日終了。"""
+
+    weekdays: frozenset[int]
+    start: time
+    end: time
+    label: str = "通常対応可能"
+    effective_start: date | None = None
+    effective_end: date | None = None
+    enabled: bool = True
+
+    def __post_init__(self) -> None:
+        if not self.weekdays or not self.weekdays.issubset(range(7)):
+            raise ValueError("対象曜日を月曜日から日曜日の範囲で指定してください。")
+        if self.effective_start and self.effective_end:
+            if self.effective_start > self.effective_end:
+                raise ValueError("適用開始日は適用終了日以前にしてください。")
+
+    def applies_on(self, day: date) -> bool:
+        return (
+            self.enabled
+            and day.weekday() in self.weekdays
+            and (self.effective_start is None or day >= self.effective_start)
+            and (self.effective_end is None or day <= self.effective_end)
+        )
+
+    def interval_on(self, day: date) -> tuple[datetime, datetime]:
+        start = datetime.combine(day, self.start)
+        end_day = day + timedelta(days=1) if self.end <= self.start else day
+        return start, datetime.combine(end_day, self.end)
+
+
+@dataclass(frozen=True)
+class RecurringBusyRule:
+    """仕事・学校など毎週繰り返す予定あり時間。"""
+
+    weekdays: frozenset[int]
+    start: time
+    end: time
+    label: str = "固定予定"
+    effective_start: date | None = None
+    effective_end: date | None = None
+    enabled: bool = True
+    source: str = "manual"
+
+    def __post_init__(self) -> None:
+        if not self.weekdays or not self.weekdays.issubset(range(7)):
+            raise ValueError("対象曜日を月曜日から日曜日の範囲で指定してください。")
+        if self.effective_start and self.effective_end:
+            if self.effective_start > self.effective_end:
+                raise ValueError("適用開始日は適用終了日以前にしてください。")
+
+    def applies_on(self, day: date) -> bool:
+        return (
+            self.enabled
+            and day.weekday() in self.weekdays
+            and (self.effective_start is None or day >= self.effective_start)
+            and (self.effective_end is None or day <= self.effective_end)
+        )
+
+    def interval_on(self, day: date) -> tuple[datetime, datetime]:
+        start = datetime.combine(day, self.start)
+        end_day = day + timedelta(days=1) if self.end <= self.start else day
+        return start, datetime.combine(end_day, self.end)
+
+
+@dataclass(frozen=True)
+class BusyInterval:
+    """単発予定やGoogle Calendarから取得するbusy区間。"""
+
+    start: datetime
+    end: datetime
+    label: str = "予定あり"
+    source: str = "manual"
+
+    def __post_init__(self) -> None:
+        if self.end <= self.start:
+            raise ValueError("busy区間の終了は開始より後にしてください。")
+
+
+@dataclass(frozen=True)
 class RequestConstraints:
     """メッセージから抽出した日程条件。"""
 
